@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { ArrowDownUp, Settings, Info, Zap, TrendingUp, Clock } from 'lucide-react'
+import { CONTRACTS } from '../config/contracts'
+import { CONTRACT_ADDRESSES } from '../config/constants'
+import { ethers } from 'ethers'
 import TokenSelector from '../components/TokenSelector'
 import TransactionModal from '../components/TransactionModal'
 import { useStore } from '../store/useStore'
@@ -7,7 +10,7 @@ import { useWallet } from '../hooks/useWallet'
 
 const SwapPage: React.FC = () => {
   const { tokens, addTransaction } = useStore()
-  const { isConnected, connect, address } = useWallet()
+  const { isConnected, connect, address, getProvider, isCorrectNetwork } = useWallet()
   
   const [fromToken, setFromToken] = useState(tokens[0])
   const [toToken, setToToken] = useState(tokens[1])
@@ -49,40 +52,70 @@ const SwapPage: React.FC = () => {
   }
 
   const handleSwap = async () => {
-    if (!isConnected || !fromAmount || parseFloat(fromAmount) <= 0) return
+    if (!isConnected) return connect()
+    if (!isCorrectNetwork) return alert('Please switch to Neura Testnet')
+    if (!fromAmount || parseFloat(fromAmount) <= 0) return
+
+    const provider = getProvider()
+    if (!provider) return alert('No provider')
+    const signer = await provider.getSigner()
 
     setIsSwapping(true)
-    setTxModal({
-      isOpen: true,
-      status: 'pending',
-      title: 'Swapping Tokens',
-      message: `Swapping ${fromAmount} ${fromToken.symbol} for ${toAmount} ${toToken.symbol}...`,
-    })
+    setTxModal({ isOpen: true, status: 'pending', title: 'Swapping Tokens', message: 'Preparing transaction...' })
 
-    // Simulate transaction
-    await new Promise((resolve) => setTimeout(resolve, 2000))
+    try {
+      const routerAddr = CONTRACTS.Router.address
+      const routerAbi = CONTRACTS.Router.abi
+      const router = new ethers.Contract(routerAddr, routerAbi, signer)
 
-    const mockTxHash = `0x${Math.random().toString(16).slice(2)}${Math.random().toString(16).slice(2)}`
-    
-    addTransaction({
-      hash: mockTxHash,
-      type: 'swap',
-      status: 'success',
-      timestamp: Date.now(),
-      details: `Swapped ${fromAmount} ${fromToken.symbol} for ${toAmount} ${toToken.symbol}`,
-    })
+      const deadline = Math.floor(Date.now() / 1000) + 60 * 20
+      const amountIn = ethers.parseUnits(fromAmount || '0', fromToken.decimals)
+      const amountOutMin = 0
 
-    setTxModal({
-      isOpen: true,
-      status: 'success',
-      title: 'Swap Successful',
-      message: `Successfully swapped ${fromAmount} ${fromToken.symbol} for ${toAmount} ${toToken.symbol}`,
-      txHash: mockTxHash,
-    })
+      // native ANKR -> token
+      if (fromToken.address === '0x0000000000000000000000000000000000000000') {
+        const path = [CONTRACT_ADDRESSES.wANKR, toToken.address]
+        const tx = await router.swapExactANKRForTokens(amountOutMin, path, address, deadline, { value: amountIn })
+        const receipt = await tx.wait()
+        addTransaction({ hash: tx.hash, type: 'swap', status: 'success', timestamp: Date.now(), details: `Swapped ${fromAmount} ${fromToken.symbol} for ${toToken.symbol}` })
+        setTxModal({ isOpen: true, status: 'success', title: 'Swap Successful', message: 'Swap executed', txHash: tx.hash })
+      } else if (toToken.address === '0x0000000000000000000000000000000000000000') {
+        // token -> native ANKR
+        const erc20 = new ethers.Contract(fromToken.address, CONTRACTS.IERC20.abi, signer)
+        const allowanceRaw = await erc20.allowance(address, routerAddr)
+        const allowance = typeof allowanceRaw === 'bigint' ? allowanceRaw : BigInt(allowanceRaw.toString())
+        if (allowance < amountIn) {
+          const apr = await erc20.approve(routerAddr, amountIn)
+          await apr.wait()
+        }
+        const path = [fromToken.address, CONTRACT_ADDRESSES.wANKR]
+        const tx = await router.swapExactTokensForANKR(amountIn, amountOutMin, path, address, deadline)
+        await tx.wait()
+        addTransaction({ hash: tx.hash, type: 'swap', status: 'success', timestamp: Date.now(), details: `Swapped ${fromAmount} ${fromToken.symbol} for ${toToken.symbol}` })
+        setTxModal({ isOpen: true, status: 'success', title: 'Swap Successful', message: 'Swap executed', txHash: tx.hash })
+      } else {
+        // token -> token
+        const erc20 = new ethers.Contract(fromToken.address, CONTRACTS.IERC20.abi, signer)
+        const allowance = await erc20.allowance(address, routerAddr)
+        if (allowance < amountIn) {
+          const apr = await erc20.approve(routerAddr, amountIn)
+          await apr.wait()
+        }
+        const path = [fromToken.address, toToken.address]
+        const tx = await router.swapExactTokensForTokens(amountIn, amountOutMin, path, address, deadline)
+        await tx.wait()
+        addTransaction({ hash: tx.hash, type: 'swap', status: 'success', timestamp: Date.now(), details: `Swapped ${fromAmount} ${fromToken.symbol} for ${toToken.symbol}` })
+        setTxModal({ isOpen: true, status: 'success', title: 'Swap Successful', message: 'Swap executed', txHash: tx.hash })
+      }
 
-    setIsSwapping(false)
-    setFromAmount('')
-    setToAmount('')
+      setFromAmount('')
+      setToAmount('')
+    } catch (err: any) {
+      console.error('Swap error', err)
+      setTxModal({ isOpen: true, status: 'error', title: 'Swap Failed', message: err.message || String(err) })
+    } finally {
+      setIsSwapping(false)
+    }
   }
 
   const priceImpact = 0.12

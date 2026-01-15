@@ -1,7 +1,7 @@
 import { useCallback, useEffect } from 'react'
 import { ethers } from 'ethers'
 import { useStore } from '../store/useStore'
-import { NEURA_TESTNET } from '../config/constants'
+import { NEURA_TESTNET, TOKENS, CONTRACT_ADDRESSES } from '../config/constants'
 
 declare global {
   interface Window {
@@ -28,6 +28,25 @@ export const useWallet = () => {
       return new ethers.BrowserProvider(window.ethereum)
     }
     return null
+  }, [])
+
+  // Ensure store tokens include deployed addresses
+  useEffect(() => {
+    const { setTokens } = useStore.getState()
+    const baseTokens = Object.values(TOKENS).map((t) => ({
+      symbol: t.symbol,
+      name: t.name,
+      address: t.address,
+      decimals: t.decimals,
+      balance: '0',
+    }))
+
+    // Add deployed NEURA and WANKR if present
+      if (CONTRACT_ADDRESSES.NEURA) {
+        baseTokens.push({ symbol: 'NEURA', name: 'Neura Token', address: CONTRACT_ADDRESSES.NEURA, decimals: 18, balance: '0' })
+      }
+
+    setTokens(baseTokens)
   }, [])
 
   const switchToNeura = useCallback(async () => {

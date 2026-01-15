@@ -1,0 +1,31 @@
+{
+  "NeuraFactory": {
+    "message": "optimizationUsed is required.",
+    "result": "optimizationUsed is required.",
+    "status": "0"
+  },
+  "WANKR": {
+    "ok": false,
+    "error": "source file not found"
+  },
+  "NeuraRouter": {
+    "message": "optimizationUsed is required.",
+    "result": "optimizationUsed is required.",
+    "status": "0"
+  },
+  "NeuraFaucet": {
+    "message": "optimizationUsed is required.",
+    "result": "optimizationUsed is required.",
+    "status": "0"
+  },
+  "NeuraFarming": {
+    "message": "optimizationUsed is required.",
+    "result": "optimizationUsed is required.",
+    "status": "0"
+  },
+  "NeuraToken": {
+    "message": "optimizationUsed is required.",
+    "result": "optimizationUsed is required.",
+    "status": "0"
+  }
+}
